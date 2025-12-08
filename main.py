@@ -12,6 +12,7 @@ from charts import (
     make_top_entities_chart,
     make_wordcloud_image,
     make_world_map,
+    normalize_and_tokenize_corpus,
 )
 from components import MultiSelectDropdown, PlaceholderCard, StatCard, build_top_news_table, build_wordcloud_image
 from data_loader import DataModel
@@ -336,8 +337,8 @@ class Dashboard:
         titles = df.get("publication_title_name", pd.Series(dtype=str)).dropna().astype(str)
         topics = df.get("topics_verdicts_list", pd.Series(dtype=object)).explode().dropna().astype(str)
         verdicts = df.get("bad_verdicts_list", pd.Series(dtype=object)).explode().dropna().astype(str)
-        text = " ".join(titles.tolist() + topics.tolist() + verdicts.tolist())
-        encoded = make_wordcloud_image(text)
+        tokenized = normalize_and_tokenize_corpus(titles.tolist() + topics.tolist() + verdicts.tolist())
+        encoded = make_wordcloud_image(tokenized)
         if encoded:
             self.wordcloud_image.content = build_wordcloud_image(encoded)
         else:

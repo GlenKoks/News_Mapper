@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 from typing import Iterable
+import re
 
 import copy
 import pandas as pd
@@ -191,3 +192,26 @@ def make_wordcloud_image(text: str) -> str:
     wc.to_image().save(buffer, format="PNG")
     buffer.seek(0)
     return base64.b64encode(buffer.read()).decode("utf-8")
+
+
+def normalize_and_tokenize_corpus(lines: Iterable[str]) -> str:
+    """Normalize and tokenize text lines for wordcloud generation."""
+
+    stopwords = set(STOPWORDS)
+    stopwords.update({"the", "and", "to", "of", "в", "на", "и", "по"})
+    tokens: list[str] = []
+
+    for line in lines:
+        if not isinstance(line, str):
+            line = str(line)
+        lowered = line.lower()
+        words = re.findall(r"[\w']+", lowered, flags=re.UNICODE)
+        for word in words:
+            cleaned = word.strip("_'")
+            if len(cleaned) < 3:
+                continue
+            if cleaned in stopwords:
+                continue
+            tokens.append(cleaned)
+
+    return " ".join(tokens)
