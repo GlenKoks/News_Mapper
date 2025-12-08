@@ -87,6 +87,7 @@ def main(page: ft.Page):
     df = load_news_data(DATA_PATH)
 
     topic_values = sorted({topic for topic_list in df.get("topics_verdicts_list", []) for topic in topic_list})
+    country_values = sorted({country for country_list in df.get("country", []) for country in country_list})
     topic_filter = ft.Dropdown(
         label="Тема",
         width=250,
@@ -94,7 +95,16 @@ def main(page: ft.Page):
         value="Все темы",
     )
 
-    search_field = ft.TextField(label="Поиск в заголовке", width=320, on_change=lambda e: apply_filters())
+    country_filter = ft.Dropdown(
+        label="Страна",
+        width=220,
+        options=[ft.dropdown.Option("Все страны")] + [ft.dropdown.Option(country) for country in country_values],
+        value="Все страны",
+    )
+
+    search_field = ft.TextField(label="Поиск в заголовке", width=300, on_change=lambda e: apply_filters())
+
+    negative_switch = ft.Switch(label="С негативным вердиктом", on_change=lambda e: apply_filters())
 
     start_date_picker = ft.DatePicker()
     end_date_picker = ft.DatePicker()
@@ -106,6 +116,7 @@ def main(page: ft.Page):
     stats_row = ft.Row(wrap=True, spacing=10)
     topics_chart_container = ft.Container()
     countries_chart_container = ft.Container()
+    persons_chart_container = ft.Container()
 
     table_container = ft.Container()
 
@@ -122,6 +133,18 @@ def main(page: ft.Page):
                 filtered["topics_verdicts_list"].apply(lambda topics: topic_filter.value in topics if isinstance(topics, list) else False)
             ]
 
+        if country_filter.value and country_filter.value != "Все страны":
+            filtered = filtered[
+                filtered["country"].apply(lambda countries: country_filter.value in countries if isinstance(countries, list) else False)
+            ]
+
+        if negative_switch.value:
+            filtered = filtered[
+                filtered["bad_verdicts_list"].apply(
+                    lambda verdicts: bool(verdicts) if isinstance(verdicts, list) else False
+                )
+            ]
+
         if search_field.value:
             term = search_field.value.lower()
             filtered = filtered[filtered["title_lower"].str.contains(term, na=False)]
@@ -132,7 +155,18 @@ def main(page: ft.Page):
         stats_row.controls = [
             create_stat_card("Публикации", f"{len(dataframe):,}".replace(",", " "), ft.icons.ARTICLE, ft.colors.BLUE),
             create_stat_card("Показы", f"{int(dataframe['shows'].sum()):,}".replace(",", " "), ft.icons.INSIGHTS, ft.colors.GREEN),
-            create_stat_card("Уникальные темы", str(dataframe["topics_verdicts_list"].explode().nunique()), ft.icons.LABEL, ft.colors.ORANGE),
+            create_stat_card(
+                "Уникальные темы",
+                str(dataframe["topics_verdicts_list"].explode().nunique() if not dataframe.empty else 0),
+                ft.icons.LABEL,
+                ft.colors.ORANGE,
+            ),
+            create_stat_card(
+                "Упомянутые персоны",
+                str(dataframe.get("persons", pd.Series(dtype=object)).explode().nunique() if not dataframe.empty else 0),
+                ft.icons.GROUP,
+                ft.colors.INDIGO,
+            ),
         ]
 
     def update_charts(dataframe: pd.DataFrame):
@@ -152,9 +186,18 @@ def main(page: ft.Page):
         else:
             countries_chart_container.content = make_bar_chart(countries_series, "Упоминания стран", ft.colors.PURPLE_300)
 
+        persons_series = dataframe.get("persons", pd.Series(dtype=object)).explode().value_counts().head(10)
+        if persons_series.empty:
+            persons_chart_container.content = ft.Text("Нет персон для отображения")
+        else:
+            persons_chart_container.content = make_bar_chart(persons_series, "ТОП персон", ft.colors.GREEN_400)
+
     def update_table(dataframe: pd.DataFrame):
         preview = dataframe.sort_values(by="shows", ascending=False).head(25)
-        table_container.content = build_table(preview)
+        if preview.empty:
+            table_container.content = ft.Text("Данные не найдены по заданным фильтрам", italic=True)
+        else:
+            table_container.content = build_table(preview)
 
     def apply_filters():
         filtered_df = filter_dataframe()
@@ -171,6 +214,8 @@ def main(page: ft.Page):
 
     def reset_filters():
         topic_filter.value = "Все темы"
+        country_filter.value = "Все страны"
+        negative_switch.value = False
         search_field.value = ""
         start_date_picker.value = None
         end_date_picker.value = None
@@ -179,8 +224,10 @@ def main(page: ft.Page):
     filter_row = ft.ResponsiveRow(
         controls=[
             ft.Container(content=topic_filter, col=3),
-            ft.Container(content=search_field, col=4),
-            ft.Container(content=ft.Row([start_button, end_button], spacing=10), col=3),
+            ft.Container(content=country_filter, col=3),
+            ft.Container(content=search_field, col=3),
+            ft.Container(content=negative_switch, col=2),
+            ft.Container(content=ft.Row([start_button, end_button], spacing=10), col=4),
             ft.Container(content=reset_button, col=2),
         ]
     )
@@ -193,6 +240,7 @@ def main(page: ft.Page):
         ft.ResponsiveRow([
             ft.Container(content=topics_chart_container, col=6, padding=10),
             ft.Container(content=countries_chart_container, col=6, padding=10),
+            ft.Container(content=persons_chart_container, col=12, padding=10),
         ]),
         table_container,
     )
