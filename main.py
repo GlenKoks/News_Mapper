@@ -64,8 +64,8 @@ class Dashboard:
 
         self.date_controls = ft.Row(
             controls=[
-                ft.ElevatedButton("Дата с", icon=ft.Icons.CALENDAR_MONTH, on_click=lambda _: self.start_date.pick_date()),
-                ft.ElevatedButton("Дата по", icon=ft.Icons.CALENDAR_TODAY, on_click=lambda _: self.end_date.pick_date()),
+                ft.ElevatedButton("Дата с", icon=ft.Icons.CALENDAR_MONTH, on_click=lambda _: self._open_date_picker(self.start_date)),
+                ft.ElevatedButton("Дата по", icon=ft.Icons.CALENDAR_TODAY, on_click=lambda _: self._open_date_picker(self.end_date)),
             ]
         )
 
@@ -97,9 +97,17 @@ class Dashboard:
                     ft.Text("Фильтры", size=18, weight=ft.FontWeight.BOLD),
                     ft.Row(
                         controls=[
-                            ft.IconButton(ft.Icons.DATE_RANGE, tooltip="Дата с", on_click=lambda _: self.start_date.pick_date()),
+                            ft.IconButton(
+                                ft.Icons.DATE_RANGE,
+                                tooltip="Дата с",
+                                on_click=lambda _: self._open_date_picker(self.start_date),
+                            ),
                             self.start_date_text,
-                            ft.IconButton(ft.Icons.EVENT, tooltip="Дата по", on_click=lambda _: self.end_date.pick_date()),
+                            ft.IconButton(
+                                ft.Icons.EVENT,
+                                tooltip="Дата по",
+                                on_click=lambda _: self._open_date_picker(self.end_date),
+                            ),
                             self.end_date_text,
                             ft.ElevatedButton("Сбросить", icon=ft.Icons.REFRESH, on_click=self.reset_filters),
                         ],
@@ -179,6 +187,14 @@ class Dashboard:
     def _on_topic_filter(self, values: Set[str]):
         self.filter_state.topics = set(values)
         self.apply_filters()
+
+    def _open_date_picker(self, picker: ft.DatePicker):
+        try:
+            picker.open = True
+            self.page.update()
+        except Exception:
+            # Older Flet builds may not support direct opening; ignore silently
+            pass
 
     def reset_filters(self, _=None):
         self.filter_state = FilterState()
