@@ -36,6 +36,21 @@ def make_world_map(country_counts: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def figure_to_base64(fig: go.Figure, *, width: int = 900, height: int = 450) -> str:
+    """Render a Plotly figure to base64 PNG.
+
+    Falls back to an empty string if kaleido (Plotly static image engine)
+    is unavailable so the caller can show a placeholder instead of crashing.
+    """
+
+    try:
+        png_bytes = fig.to_image(format="png", width=width, height=height, scale=2)
+    except Exception:
+        return ""
+
+    return base64.b64encode(png_bytes).decode("utf-8")
+
+
 def make_publications_chart(daily_stats: pd.DataFrame) -> go.Figure:
     if daily_stats.empty:
         fig = go.Figure()

@@ -5,7 +5,7 @@ from typing import Set
 import flet as ft
 import pandas as pd
 
-from charts import make_publications_chart, make_top_entities_chart, make_wordcloud_image, make_world_map
+from charts import figure_to_base64, make_publications_chart, make_top_entities_chart, make_wordcloud_image, make_world_map
 from components import MultiSelectDropdown, PlaceholderCard, StatCard, build_top_news_table, build_wordcloud_image
 from data_loader import DataModel
 from filters import FilterState, apply_filters, extract_unique
@@ -63,11 +63,11 @@ class Dashboard:
         self.page.appbar = self.app_bar
 
         self.stats_row = ft.ResponsiveRow([])
-        self.map_chart = ft.PlotlyChart()
-        self.daily_chart = ft.PlotlyChart()
-        self.persons_chart = ft.PlotlyChart()
-        self.organizations_chart = ft.PlotlyChart()
-        self.locations_chart = ft.PlotlyChart()
+        self.map_chart = ft.Container(height=360)
+        self.daily_chart = ft.Container(height=360)
+        self.persons_chart = ft.Container(height=320)
+        self.organizations_chart = ft.Container(height=320)
+        self.locations_chart = ft.Container(height=320)
         self.wordcloud_image = ft.Container()
         self.top_news_table = ft.Container()
 
@@ -189,10 +189,20 @@ class Dashboard:
             .reset_index()
             .sort_values("mentions", ascending=False)
         )
-        self.map_chart.figure = make_world_map(country_grouped)
+        map_fig = make_world_map(country_grouped)
+        map_img = figure_to_base64(map_fig)
+        if map_img:
+            self.map_chart.content = ft.Image(src_base64=map_img, fit=ft.ImageFit.CONTAIN)
+        else:
+            self.map_chart.content = PlaceholderCard("Нет данных или недоступен движок визуализации карты")
 
         # Daily chart
-        self.daily_chart.figure = make_publications_chart(self.model.daily_stats)
+        daily_fig = make_publications_chart(self.model.daily_stats)
+        daily_img = figure_to_base64(daily_fig)
+        if daily_img:
+            self.daily_chart.content = ft.Image(src_base64=daily_img, fit=ft.ImageFit.CONTAIN)
+        else:
+            self.daily_chart.content = PlaceholderCard("Нет данных или недоступен движок визуализации графика")
 
         # Top entities
         persons_top = (
@@ -226,9 +236,29 @@ class Dashboard:
             .head(5)
         )
 
-        self.persons_chart.figure = make_top_entities_chart(persons_top, "persons", "Топ-5 персон")
-        self.organizations_chart.figure = make_top_entities_chart(orgs_top, "organizations", "Топ-5 компаний")
-        self.locations_chart.figure = make_top_entities_chart(locations_top, "locations", "Топ-5 геоназваний")
+        persons_fig = make_top_entities_chart(persons_top, "persons", "Топ-5 персон")
+        persons_img = figure_to_base64(persons_fig)
+        self.persons_chart.content = (
+            ft.Image(src_base64=persons_img, fit=ft.ImageFit.CONTAIN)
+            if persons_img
+            else PlaceholderCard("Нет данных для персон или недоступен движок визуализации")
+        )
+
+        orgs_fig = make_top_entities_chart(orgs_top, "organizations", "Топ-5 компаний")
+        orgs_img = figure_to_base64(orgs_fig)
+        self.organizations_chart.content = (
+            ft.Image(src_base64=orgs_img, fit=ft.ImageFit.CONTAIN)
+            if orgs_img
+            else PlaceholderCard("Нет данных для компаний или недоступен движок визуализации")
+        )
+
+        locations_fig = make_top_entities_chart(locations_top, "locations", "Топ-5 геоназваний")
+        locations_img = figure_to_base64(locations_fig)
+        self.locations_chart.content = (
+            ft.Image(src_base64=locations_img, fit=ft.ImageFit.CONTAIN)
+            if locations_img
+            else PlaceholderCard("Нет данных для геоназваний или недоступен движок визуализации")
+        )
 
         # Top news table
         top_news = df.sort_values("shows", ascending=False).head(10)[["dt", "publication_title_name", "shows"]]
