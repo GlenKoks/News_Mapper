@@ -1,251 +1,256 @@
 from __future__ import annotations
 
+from typing import Set
+
 import flet as ft
 import pandas as pd
 
-from data_loader import format_list, load_news_data
+from charts import make_publications_chart, make_top_entities_chart, make_wordcloud_image, make_world_map
+from components import MultiSelectDropdown, PlaceholderCard, StatCard, build_top_news_table, build_wordcloud_image
+from data_loader import DataModel
+from filters import FilterState, apply_filters, extract_unique
 
 DATA_PATH = "Geo_Data.csv"
+CACHE_PATH = "news_cache.parquet"
 
 
-def create_stat_card(title: str, value: str, icon: str, color: str) -> ft.Container:
-    return ft.Container(
-        padding=12,
-        bgcolor=color,
-        border_radius=10,
-        content=ft.Column(
-            spacing=5,
+class Dashboard:
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self.model = DataModel.from_csv(DATA_PATH, CACHE_PATH)
+        self.filter_state = FilterState()
+
+        self._build_filters()
+        self._build_layout()
+        self.apply_filters()
+
+    def _build_filters(self):
+        df = self.model.data
+        self.person_filter = MultiSelectDropdown(
+            label="Персоны",
+            options=extract_unique(df.get("persons", pd.Series(dtype=object))),
+            on_change=self._on_person_filter,
+        )
+        self.organization_filter = MultiSelectDropdown(
+            label="Организации",
+            options=extract_unique(df.get("organizations", pd.Series(dtype=object))),
+            on_change=self._on_organization_filter,
+        )
+        self.country_filter = MultiSelectDropdown(
+            label="Страны",
+            options=extract_unique(df.get("country", pd.Series(dtype=object))),
+            on_change=self._on_country_filter,
+        )
+
+        self.start_date = ft.DatePicker(on_change=lambda _: self.apply_filters())
+        self.end_date = ft.DatePicker(on_change=lambda _: self.apply_filters())
+        self.page.overlay.extend([self.start_date, self.end_date])
+
+        self.date_controls = ft.Row(
             controls=[
-                ft.Row([ft.Icon(icon, color=ft.colors.WHITE), ft.Text(title, color=ft.colors.WHITE, weight=ft.FontWeight.W_600)]),
-                ft.Text(value, size=24, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE),
+                ft.ElevatedButton("Дата с", icon=ft.Icons.CALENDAR_MONTH, on_click=lambda _: self.start_date.pick_date()),
+                ft.ElevatedButton("Дата по", icon=ft.Icons.CALENDAR_TODAY, on_click=lambda _: self.end_date.pick_date()),
+            ]
+        )
+
+    def _build_layout(self):
+        self.page.title = "News Analytics Dashboard"
+        self.page.padding = 16
+        self.page.scroll = ft.ScrollMode.AUTO
+        self.page.theme_mode = ft.ThemeMode.LIGHT
+
+        self.app_bar = ft.AppBar(title=ft.Text("News Analytics Dashboard", weight=ft.FontWeight.BOLD), bgcolor=ft.Colors.BLUE_100)
+        self.page.appbar = self.app_bar
+
+        self.stats_row = ft.ResponsiveRow([])
+        self.map_chart = ft.PlotlyChart()
+        self.daily_chart = ft.PlotlyChart()
+        self.persons_chart = ft.PlotlyChart()
+        self.organizations_chart = ft.PlotlyChart()
+        self.locations_chart = ft.PlotlyChart()
+        self.wordcloud_image = ft.Container()
+        self.top_news_table = ft.Container()
+
+        filters_panel = ft.Container(
+            width=300,
+            bgcolor=ft.Colors.BLUE_GREY_50,
+            border_radius=12,
+            padding=12,
+            content=ft.Column(
+                spacing=12,
+                controls=[
+                    ft.Text("Фильтры", size=18, weight=ft.FontWeight.BOLD),
+                    self.person_filter,
+                    self.organization_filter,
+                    self.country_filter,
+                    ft.Row([ft.Text("Дата с:"), ft.IconButton(ft.Icons.DATE_RANGE, on_click=lambda _: self.start_date.pick_date())]),
+                    ft.Row([ft.Text("Дата по:"), ft.IconButton(ft.Icons.DATE_RANGE, on_click=lambda _: self.end_date.pick_date())]),
+                    ft.ElevatedButton("Сбросить", icon=ft.Icons.REFRESH, on_click=self.reset_filters),
+                ],
+            ),
+        )
+
+        visuals = ft.Column(
+            spacing=16,
+            controls=[
+                self.stats_row,
+                ft.ResponsiveRow(
+                    controls=[
+                        ft.Container(content=self.map_chart, col=6, padding=8, bgcolor=ft.Colors.WHITE, border_radius=10, ink=True),
+                        ft.Container(content=self.daily_chart, col=6, padding=8, bgcolor=ft.Colors.WHITE, border_radius=10, ink=True),
+                    ]
+                ),
+                ft.ResponsiveRow(
+                    controls=[
+                        ft.Container(content=self.persons_chart, col=4, padding=8, bgcolor=ft.Colors.WHITE, border_radius=10, ink=True),
+                        ft.Container(content=self.organizations_chart, col=4, padding=8, bgcolor=ft.Colors.WHITE, border_radius=10, ink=True),
+                        ft.Container(content=self.locations_chart, col=4, padding=8, bgcolor=ft.Colors.WHITE, border_radius=10, ink=True),
+                    ]
+                ),
+                ft.Container(
+                    bgcolor=ft.Colors.WHITE,
+                    padding=12,
+                    border_radius=10,
+                    content=ft.Column([
+                        ft.Text("ТОП-10 новостей по показам", weight=ft.FontWeight.W_600),
+                        self.top_news_table,
+                    ]),
+                ),
+                ft.Container(
+                    bgcolor=ft.Colors.WHITE,
+                    padding=12,
+                    border_radius=10,
+                    content=ft.Column([
+                        ft.Text("Облако слов", weight=ft.FontWeight.W_600),
+                        self.wordcloud_image,
+                    ]),
+                ),
             ],
-        ),
-    )
-
-
-def make_bar_chart(series: pd.Series, title: str, color: str) -> ft.Column:
-    bar_groups = []
-    labels = []
-    for index, (label, value) in enumerate(series.items()):
-        bar_groups.append(
-            ft.BarChartGroup(
-                x=index,
-                bar_rods=[ft.BarChartRod(from_y=0, to_y=float(value), width=18, color=color)],
-            )
-        )
-        labels.append(ft.ChartAxisLabel(value=index, label=ft.Text(label, size=10)))
-
-    chart = ft.BarChart(
-        bar_groups=bar_groups,
-        border=ft.Border(side=ft.BorderSide(1, ft.colors.OUTLINE)),
-        horizontal_grid_lines=ft.ChartGridLines(interval=1, color=ft.colors.GREY_300),
-        bottom_axis=ft.ChartAxis(labels=labels, labels_size=40),
-        left_axis=ft.ChartAxis(title=ft.Text(title), labels_size=50),
-        tooltip_bgcolor=color,
-        max_y=max(series.max() * 1.15, 1),
-        expand=True,
-    )
-    return ft.Column([ft.Text(title, weight=ft.FontWeight.W_600), chart])
-
-
-def build_table(data: pd.DataFrame) -> ft.DataTable:
-    rows = []
-    for _, row in data.iterrows():
-        rows.append(
-            ft.DataRow(
-                cells=[
-                    ft.DataCell(ft.Text(row.get("publication_title_name", ""))),
-                    ft.DataCell(ft.Text(row.get("dt", "").strftime("%Y-%m-%d") if pd.notna(row.get("dt")) else "—")),
-                    ft.DataCell(ft.Text(format_list(row.get("topics_verdicts_list", [])))),
-                    ft.DataCell(ft.Text(str(row.get("shows", "—")))),
-                    ft.DataCell(ft.Text(format_list(row.get("country", [])))),
-                ]
-            )
         )
 
-    return ft.DataTable(
-        columns=[
-            ft.DataColumn(ft.Text("Заголовок")),
-            ft.DataColumn(ft.Text("Дата")),
-            ft.DataColumn(ft.Text("Темы")),
-            ft.DataColumn(ft.Text("Показы")),
-            ft.DataColumn(ft.Text("Страны")),
-        ],
-        rows=rows,
-        heading_row_color=ft.colors.BLUE_GREY_50,
-        column_spacing=20,
-        width=1200,
-    )
+        self.page.add(ft.Row(controls=[filters_panel, ft.VerticalDivider(width=1), ft.Expanded(visuals)], expand=True))
+
+    def _on_person_filter(self, values: Set[str]):
+        self.filter_state.persons = set(values)
+        self.apply_filters()
+
+    def _on_organization_filter(self, values: Set[str]):
+        self.filter_state.organizations = set(values)
+        self.apply_filters()
+
+    def _on_country_filter(self, values: Set[str]):
+        self.filter_state.countries = set(values)
+        self.apply_filters()
+
+    def reset_filters(self, _=None):
+        self.filter_state = FilterState()
+        self.person_filter.reset()
+        self.organization_filter.reset()
+        self.country_filter.reset()
+        self.start_date.value = None
+        self.end_date.value = None
+        self.apply_filters()
+
+    def apply_filters(self):
+        self.filter_state.start_date = self.start_date.value
+        self.filter_state.end_date = self.end_date.value
+
+        filtered_df = apply_filters(self.model.data, self.filter_state)
+        self.model.refresh_daily_stats(filtered_df)
+
+        self._update_stats(filtered_df)
+        self._update_visuals(filtered_df)
+        self.page.update()
+
+    def _update_stats(self, df: pd.DataFrame):
+        publications = len(df)
+        shows = int(df["shows"].sum()) if not df.empty else 0
+        topics = int(df.get("topics_verdicts_list", pd.Series(dtype=object)).explode().nunique()) if not df.empty else 0
+        persons = int(df.get("persons", pd.Series(dtype=object)).explode().nunique()) if not df.empty else 0
+
+        self.stats_row.controls = [
+            ft.Container(content=StatCard("Публикации", f"{publications:,}".replace(",", " "), ft.Icons.ARTICLE, ft.Colors.BLUE_300), col=3),
+            ft.Container(content=StatCard("Показы", f"{shows:,}".replace(",", " "), ft.Icons.INSIGHTS, ft.Colors.GREEN_300), col=3),
+            ft.Container(content=StatCard("Уникальные темы", str(topics), ft.Icons.LABEL, ft.Colors.ORANGE_300), col=3),
+            ft.Container(content=StatCard("Персоны", str(persons), ft.Icons.GROUP, ft.Colors.INDIGO_300), col=3),
+        ]
+
+    def _update_visuals(self, df: pd.DataFrame):
+        # Map
+        country_counts = (
+            df[["country", "shows"]]
+            .explode("country")
+            .dropna(subset=["country"])
+            .assign(country=lambda x: x["country"].str.strip())
+        )
+        country_grouped = (
+            country_counts.groupby("country")
+            .agg(mentions=("country", "size"), shows=("shows", "sum"))
+            .reset_index()
+            .sort_values("mentions", ascending=False)
+        )
+        self.map_chart.figure = make_world_map(country_grouped)
+
+        # Daily chart
+        self.daily_chart.figure = make_publications_chart(self.model.daily_stats)
+
+        # Top entities
+        persons_top = (
+            df[["persons", "shows"]]
+            .explode("persons")
+            .dropna(subset=["persons"])
+            .groupby("persons")
+            .agg(mentions=("persons", "size"), shows=("shows", "sum"))
+            .reset_index()
+            .sort_values(["mentions", "shows"], ascending=False)
+            .head(5)
+        )
+        orgs_top = (
+            df[["organizations", "shows"]]
+            .explode("organizations")
+            .dropna(subset=["organizations"])
+            .groupby("organizations")
+            .agg(mentions=("organizations", "size"), shows=("shows", "sum"))
+            .reset_index()
+            .sort_values(["mentions", "shows"], ascending=False)
+            .head(5)
+        )
+        locations_top = (
+            df[["locations", "shows"]]
+            .explode("locations")
+            .dropna(subset=["locations"])
+            .groupby("locations")
+            .agg(mentions=("locations", "size"), shows=("shows", "sum"))
+            .reset_index()
+            .sort_values(["mentions", "shows"], ascending=False)
+            .head(5)
+        )
+
+        self.persons_chart.figure = make_top_entities_chart(persons_top, "persons", "Топ-5 персон")
+        self.organizations_chart.figure = make_top_entities_chart(orgs_top, "organizations", "Топ-5 компаний")
+        self.locations_chart.figure = make_top_entities_chart(locations_top, "locations", "Топ-5 геоназваний")
+
+        # Top news table
+        top_news = df.sort_values("shows", ascending=False).head(10)[["dt", "publication_title_name", "shows"]]
+        if top_news.empty:
+            self.top_news_table.content = PlaceholderCard("Нет данных для отображения новостей")
+        else:
+            self.top_news_table.content = build_top_news_table(top_news)
+
+        # Wordcloud
+        titles = df.get("publication_title_name", pd.Series(dtype=str)).dropna().astype(str)
+        topics = df.get("topics_verdicts_list", pd.Series(dtype=object)).explode().dropna().astype(str)
+        verdicts = df.get("bad_verdicts_list", pd.Series(dtype=object)).explode().dropna().astype(str)
+        text = " ".join(titles.tolist() + topics.tolist() + verdicts.tolist())
+        encoded = make_wordcloud_image(text)
+        if encoded:
+            self.wordcloud_image.content = build_wordcloud_image(encoded)
+        else:
+            self.wordcloud_image.content = PlaceholderCard("Недостаточно текста для облака слов")
 
 
 def main(page: ft.Page):
-    page.title = "News Mapper"
-    page.theme_mode = ft.ThemeMode.LIGHT
-    page.scroll = ft.ScrollMode.AUTO
-    page.padding = 20
-
-    df = load_news_data(DATA_PATH)
-
-    topic_values = sorted({topic for topic_list in df.get("topics_verdicts_list", []) for topic in topic_list})
-    country_values = sorted({country for country_list in df.get("country", []) for country in country_list})
-    topic_filter = ft.Dropdown(
-        label="Тема",
-        width=250,
-        options=[ft.dropdown.Option("Все темы")] + [ft.dropdown.Option(topic) for topic in topic_values],
-        value="Все темы",
-    )
-
-    country_filter = ft.Dropdown(
-        label="Страна",
-        width=220,
-        options=[ft.dropdown.Option("Все страны")] + [ft.dropdown.Option(country) for country in country_values],
-        value="Все страны",
-    )
-
-    search_field = ft.TextField(label="Поиск в заголовке", width=300, on_change=lambda e: apply_filters())
-
-    negative_switch = ft.Switch(label="С негативным вердиктом", on_change=lambda e: apply_filters())
-
-    start_date_picker = ft.DatePicker()
-    end_date_picker = ft.DatePicker()
-    page.overlay.extend([start_date_picker, end_date_picker])
-
-    start_button = ft.ElevatedButton("Дата с", on_click=lambda e: start_date_picker.pick_date())
-    end_button = ft.ElevatedButton("Дата по", on_click=lambda e: end_date_picker.pick_date())
-
-    stats_row = ft.Row(wrap=True, spacing=10)
-    topics_chart_container = ft.Container()
-    countries_chart_container = ft.Container()
-    persons_chart_container = ft.Container()
-
-    table_container = ft.Container()
-
-    def filter_dataframe() -> pd.DataFrame:
-        filtered = df.copy()
-
-        if start_date_picker.value:
-            filtered = filtered[filtered["dt"] >= pd.to_datetime(start_date_picker.value)]
-        if end_date_picker.value:
-            filtered = filtered[filtered["dt"] <= pd.to_datetime(end_date_picker.value)]
-
-        if topic_filter.value and topic_filter.value != "Все темы":
-            filtered = filtered[
-                filtered["topics_verdicts_list"].apply(lambda topics: topic_filter.value in topics if isinstance(topics, list) else False)
-            ]
-
-        if country_filter.value and country_filter.value != "Все страны":
-            filtered = filtered[
-                filtered["country"].apply(lambda countries: country_filter.value in countries if isinstance(countries, list) else False)
-            ]
-
-        if negative_switch.value:
-            filtered = filtered[
-                filtered["bad_verdicts_list"].apply(
-                    lambda verdicts: bool(verdicts) if isinstance(verdicts, list) else False
-                )
-            ]
-
-        if search_field.value:
-            term = search_field.value.lower()
-            filtered = filtered[filtered["title_lower"].str.contains(term, na=False)]
-
-        return filtered
-
-    def update_stats(dataframe: pd.DataFrame):
-        stats_row.controls = [
-            create_stat_card("Публикации", f"{len(dataframe):,}".replace(",", " "), ft.icons.ARTICLE, ft.colors.BLUE),
-            create_stat_card("Показы", f"{int(dataframe['shows'].sum()):,}".replace(",", " "), ft.icons.INSIGHTS, ft.colors.GREEN),
-            create_stat_card(
-                "Уникальные темы",
-                str(dataframe["topics_verdicts_list"].explode().nunique() if not dataframe.empty else 0),
-                ft.icons.LABEL,
-                ft.colors.ORANGE,
-            ),
-            create_stat_card(
-                "Упомянутые персоны",
-                str(dataframe.get("persons", pd.Series(dtype=object)).explode().nunique() if not dataframe.empty else 0),
-                ft.icons.GROUP,
-                ft.colors.INDIGO,
-            ),
-        ]
-
-    def update_charts(dataframe: pd.DataFrame):
-        topics_series = (
-            dataframe["topics_verdicts_list"].explode().value_counts().head(10)
-            if "topics_verdicts_list" in dataframe
-            else pd.Series()
-        )
-        if topics_series.empty:
-            topics_chart_container.content = ft.Text("Недостаточно данных для отображения тем")
-        else:
-            topics_chart_container.content = make_bar_chart(topics_series, "ТОП тем", ft.colors.BLUE_400)
-
-        countries_series = dataframe["country"].explode().value_counts().head(10) if "country" in dataframe else pd.Series()
-        if countries_series.empty:
-            countries_chart_container.content = ft.Text("Страны отсутствуют в выборке")
-        else:
-            countries_chart_container.content = make_bar_chart(countries_series, "Упоминания стран", ft.colors.PURPLE_300)
-
-        persons_series = dataframe.get("persons", pd.Series(dtype=object)).explode().value_counts().head(10)
-        if persons_series.empty:
-            persons_chart_container.content = ft.Text("Нет персон для отображения")
-        else:
-            persons_chart_container.content = make_bar_chart(persons_series, "ТОП персон", ft.colors.GREEN_400)
-
-    def update_table(dataframe: pd.DataFrame):
-        preview = dataframe.sort_values(by="shows", ascending=False).head(25)
-        if preview.empty:
-            table_container.content = ft.Text("Данные не найдены по заданным фильтрам", italic=True)
-        else:
-            table_container.content = build_table(preview)
-
-    def apply_filters():
-        filtered_df = filter_dataframe()
-        update_stats(filtered_df)
-        update_charts(filtered_df)
-        update_table(filtered_df)
-        page.update()
-
-    reset_button = ft.TextButton(
-        "Сбросить фильтры",
-        icon=ft.icons.REFRESH,
-        on_click=lambda e: reset_filters(),
-    )
-
-    def reset_filters():
-        topic_filter.value = "Все темы"
-        country_filter.value = "Все страны"
-        negative_switch.value = False
-        search_field.value = ""
-        start_date_picker.value = None
-        end_date_picker.value = None
-        apply_filters()
-
-    filter_row = ft.ResponsiveRow(
-        controls=[
-            ft.Container(content=topic_filter, col=3),
-            ft.Container(content=country_filter, col=3),
-            ft.Container(content=search_field, col=3),
-            ft.Container(content=negative_switch, col=2),
-            ft.Container(content=ft.Row([start_button, end_button], spacing=10), col=4),
-            ft.Container(content=reset_button, col=2),
-        ]
-    )
-
-    page.add(
-        ft.Text("Интерактивная визуализация новостей", size=24, weight=ft.FontWeight.BOLD),
-        ft.Text("Фильтруйте и изучайте публикации по темам, странам и дате."),
-        filter_row,
-        stats_row,
-        ft.ResponsiveRow([
-            ft.Container(content=topics_chart_container, col=6, padding=10),
-            ft.Container(content=countries_chart_container, col=6, padding=10),
-            ft.Container(content=persons_chart_container, col=12, padding=10),
-        ]),
-        table_container,
-    )
-
-    apply_filters()
+    Dashboard(page)
 
 
 if __name__ == "__main__":
