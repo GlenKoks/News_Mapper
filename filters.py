@@ -15,6 +15,7 @@ class FilterState:
     persons: Set[str] = field(default_factory=set)
     organizations: Set[str] = field(default_factory=set)
     countries: Set[str] = field(default_factory=set)
+    topics: Set[str] = field(default_factory=set)
 
 
 def _intersects(series: pd.Series, selected: Set[str]) -> pd.Series:
@@ -40,6 +41,8 @@ def apply_filters(df: pd.DataFrame, state: FilterState) -> pd.DataFrame:
         mask &= _intersects(df.get("organizations", pd.Series(dtype=object)), state.organizations)
     if state.countries:
         mask &= _intersects(df.get("country", pd.Series(dtype=object)), state.countries)
+    if state.topics:
+        mask &= _intersects(df.get("topics_verdicts_list", pd.Series(dtype=object)), state.topics)
 
     return df[mask].copy()
 

@@ -48,10 +48,18 @@ class Dashboard:
             options=extract_unique(df.get("country", pd.Series(dtype=object))),
             on_change=self._on_country_filter,
         )
+        self.topic_filter = MultiSelectDropdown(
+            label="Тематики",
+            options=extract_unique(df.get("topics_verdicts_list", pd.Series(dtype=object))),
+            on_change=self._on_topic_filter,
+        )
 
         self.start_date = ft.DatePicker(on_change=lambda _: self.apply_filters())
         self.end_date = ft.DatePicker(on_change=lambda _: self.apply_filters())
         self.page.overlay.extend([self.start_date, self.end_date])
+
+        self.start_date_text = ft.Text("Дата с", color=ft.Colors.GREY_700)
+        self.end_date_text = ft.Text("Дата по", color=ft.Colors.GREY_700)
 
         self.date_controls = ft.Row(
             controls=[
@@ -63,7 +71,7 @@ class Dashboard:
     def _build_layout(self):
         self.page.title = "News Analytics Dashboard"
         self.page.padding = 16
-        self.page.scroll = ft.ScrollMode.AUTO
+        self.page.scroll = ft.ScrollMode.ADAPTIVE
         self.page.theme_mode = ft.ThemeMode.LIGHT
 
         self.app_bar = ft.AppBar(title=ft.Text("News Analytics Dashboard", weight=ft.FontWeight.BOLD), bgcolor=ft.Colors.BLUE_100)
@@ -78,27 +86,44 @@ class Dashboard:
         self.wordcloud_image = ft.Container()
         self.top_news_table = ft.Container()
 
-        filters_panel = ft.Container(
-            width=300,
+        filters_bar = ft.Container(
             bgcolor=ft.Colors.BLUE_GREY_50,
             border_radius=12,
             padding=12,
             content=ft.Column(
-                spacing=12,
+                spacing=8,
                 controls=[
                     ft.Text("Фильтры", size=18, weight=ft.FontWeight.BOLD),
-                    self.person_filter,
-                    self.organization_filter,
-                    self.country_filter,
-                    ft.Row([ft.Text("Дата с:"), ft.IconButton(ft.Icons.DATE_RANGE, on_click=lambda _: self.start_date.pick_date())]),
-                    ft.Row([ft.Text("Дата по:"), ft.IconButton(ft.Icons.DATE_RANGE, on_click=lambda _: self.end_date.pick_date())]),
-                    ft.ElevatedButton("Сбросить", icon=ft.Icons.REFRESH, on_click=self.reset_filters),
+                    ft.Row(
+                        controls=[
+                            ft.IconButton(ft.Icons.DATE_RANGE, tooltip="Дата с", on_click=lambda _: self.start_date.pick_date()),
+                            self.start_date_text,
+                            ft.IconButton(ft.Icons.EVENT, tooltip="Дата по", on_click=lambda _: self.end_date.pick_date()),
+                            self.end_date_text,
+                            ft.ElevatedButton("Сбросить", icon=ft.Icons.REFRESH, on_click=self.reset_filters),
+                        ],
+                        spacing=12,
+                        wrap=True,
+                        run_spacing=8,
+                    ),
+                    ft.ResponsiveRow(
+                        columns=12,
+                        run_spacing=8,
+                        spacing=8,
+                        controls=[
+                            ft.Container(content=self.person_filter, col=3),
+                            ft.Container(content=self.organization_filter, col=3),
+                            ft.Container(content=self.country_filter, col=3),
+                            ft.Container(content=self.topic_filter, col=3),
+                        ],
+                    ),
                 ],
             ),
         )
 
         visuals = ft.Column(
             spacing=16,
+            scroll=ft.ScrollMode.AUTO,
             controls=[
                 self.stats_row,
                 ft.ResponsiveRow(
@@ -135,9 +160,8 @@ class Dashboard:
             ],
         )
 
-        # Use an expanding container instead of ft.Expanded for compatibility with older flet versions
         visuals_container = ft.Container(content=visuals, expand=True)
-        self.page.add(ft.Row(controls=[filters_panel, ft.VerticalDivider(width=1), visuals_container], expand=True))
+        self.page.add(ft.Column(controls=[filters_bar, visuals_container], expand=True))
 
     def _on_person_filter(self, values: Set[str]):
         self.filter_state.persons = set(values)
@@ -151,11 +175,16 @@ class Dashboard:
         self.filter_state.countries = set(values)
         self.apply_filters()
 
+    def _on_topic_filter(self, values: Set[str]):
+        self.filter_state.topics = set(values)
+        self.apply_filters()
+
     def reset_filters(self, _=None):
         self.filter_state = FilterState()
         self.person_filter.reset()
         self.organization_filter.reset()
         self.country_filter.reset()
+        self.topic_filter.reset()
         self.start_date.value = None
         self.end_date.value = None
         self.apply_filters()
@@ -163,6 +192,11 @@ class Dashboard:
     def apply_filters(self):
         self.filter_state.start_date = self.start_date.value
         self.filter_state.end_date = self.end_date.value
+        # Ensure topics filter is preserved when dates are changed via pickers
+        self.filter_state.topics = getattr(self.filter_state, "topics", set())
+
+        self.start_date_text.value = self.start_date.value or "Дата с"
+        self.end_date_text.value = self.end_date.value or "Дата по"
 
         filtered_df = apply_filters(self.model.data, self.filter_state)
         self.model.refresh_daily_stats(filtered_df)
@@ -290,7 +324,9 @@ class Dashboard:
         )
 
         # Top news table
-        top_news = df.sort_values("shows", ascending=False).head(10)[["dt", "publication_title_name", "shows"]]
+        top_news = df.sort_values("shows", ascending=False).head(10)[
+            ["dt", "publication_title_name", "shows", "bad_verdicts_list", "topics_verdicts_list"]
+        ]
         if top_news.empty:
             self.top_news_table.content = PlaceholderCard("Нет данных для отображения новостей")
         else:

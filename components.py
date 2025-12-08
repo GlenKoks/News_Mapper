@@ -6,6 +6,8 @@ from typing import Callable, List, Optional, Set
 import flet as ft
 import pandas as pd
 
+from data_loader import format_list
+
 
 class MultiSelectDropdown(ft.Column):
     def __init__(
@@ -99,6 +101,8 @@ def build_top_news_table(data: pd.DataFrame) -> ft.DataTable:
                     ft.DataCell(ft.Text(row.get("dt").strftime("%Y-%m-%d") if pd.notna(row.get("dt")) else "—")),
                     ft.DataCell(ft.Text(row.get("publication_title_name", "—"))),
                     ft.DataCell(ft.Text(f"{int(row.get('shows', 0)):,}".replace(",", " "))),
+                    ft.DataCell(ft.Text(format_list(row.get("bad_verdicts_list", [])))),
+                    ft.DataCell(ft.Text(format_list(row.get("topics_verdicts_list", [])))),
                 ]
             )
         )
@@ -108,6 +112,8 @@ def build_top_news_table(data: pd.DataFrame) -> ft.DataTable:
             ft.DataColumn(ft.Text("Дата")),
             ft.DataColumn(ft.Text("Заголовок")),
             ft.DataColumn(ft.Text("Показы")),
+            ft.DataColumn(ft.Text("Негативные вердикты")),
+            ft.DataColumn(ft.Text("Тематики")),
         ],
         rows=rows,
         column_spacing=12,
