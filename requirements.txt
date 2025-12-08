@@ -1,2 +1,2 @@
-flet
-pandas
+flet>=0.22.0
+pandas>=1.5.0
