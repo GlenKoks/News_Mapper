@@ -6,3 +6,4 @@ wordcloud
 matplotlib
 pillow
 kaleido
+folium

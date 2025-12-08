@@ -1,15 +1,19 @@
-"""Visualization helpers using Plotly and wordcloud."""
+"""Visualization helpers using Plotly, folium, and wordcloud."""
 from __future__ import annotations
 
 import base64
 from io import BytesIO
 from typing import Iterable
 
+import copy
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import folium
 from wordcloud import STOPWORDS, WordCloud
+
+import geo
 
 
 COLOR_PALETTE = px.colors.sequential.Blues
@@ -34,6 +38,59 @@ def make_world_map(country_counts: pd.DataFrame) -> go.Figure:
         coloraxis_colorbar=dict(title="Количество упоминаний"),
     )
     return fig
+
+
+def make_folium_map_html(country_counts: pd.DataFrame) -> str:
+    """Build a folium choropleth map and return it as a data URI HTML string.
+
+    Returns an empty string when folium rendering fails so callers can
+    gracefully fall back to a placeholder or an alternative map engine.
+    """
+
+    if country_counts.empty:
+        return ""
+
+    enriched_geo = copy.deepcopy(geo.geo_list)
+    mentions_by_country = country_counts.set_index("country")["mentions"].to_dict()
+
+    # Annotate geo features with mention counts for tooltips.
+    for feature in enriched_geo.get("features", []):
+        code = feature.get("id")
+        feature.setdefault("properties", {})
+        feature["properties"]["mentions"] = int(mentions_by_country.get(code, 0))
+
+    try:
+        fmap = folium.Map(location=[20, 0], zoom_start=2, tiles="cartodbpositron")
+        choropleth = folium.Choropleth(
+            geo_data=enriched_geo,
+            name="mentions",
+            data=country_counts,
+            columns=["country", "mentions"],
+            key_on="feature.id",
+            fill_color="YlGnBu",
+            fill_opacity=0.8,
+            line_opacity=0.3,
+            highlight=True,
+            nan_fill_color="white",
+            nan_fill_opacity=0.15,
+        )
+        choropleth.add_to(fmap)
+
+        choropleth.geojson.add_child(
+            folium.features.GeoJsonTooltip(
+                fields=["name", "mentions"],
+                aliases=["Страна", "Упоминания"],
+                localize=True,
+                sticky=False,
+            )
+        )
+
+        fmap_html = fmap.get_root().render()
+    except Exception:
+        return ""
+
+    encoded = base64.b64encode(fmap_html.encode("utf-8")).decode("utf-8")
+    return f"data:text/html;base64,{encoded}"
 
 
 def figure_to_base64(fig: go.Figure, *, width: int = 900, height: int = 450) -> str:

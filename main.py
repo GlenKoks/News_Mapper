@@ -5,7 +5,14 @@ from typing import Set
 import flet as ft
 import pandas as pd
 
-from charts import figure_to_base64, make_publications_chart, make_top_entities_chart, make_wordcloud_image, make_world_map
+from charts import (
+    figure_to_base64,
+    make_folium_map_html,
+    make_publications_chart,
+    make_top_entities_chart,
+    make_wordcloud_image,
+    make_world_map,
+)
 from components import MultiSelectDropdown, PlaceholderCard, StatCard, build_top_news_table, build_wordcloud_image
 from data_loader import DataModel
 from filters import FilterState, apply_filters, extract_unique
@@ -191,12 +198,32 @@ class Dashboard:
             .reset_index()
             .sort_values("mentions", ascending=False)
         )
-        map_fig = make_world_map(country_grouped)
-        map_img = figure_to_base64(map_fig)
-        if map_img:
-            self.map_chart.content = ft.Image(src_base64=map_img, fit=ft.ImageFit.CONTAIN)
-        else:
-            self.map_chart.content = PlaceholderCard("Нет данных или недоступен движок визуализации карты")
+        folium_map = make_folium_map_html(country_grouped)
+        iframe_cls = getattr(ft, "IFrame", None) or getattr(ft, "Iframe", None)
+        webview_cls = getattr(ft, "WebView", None)
+
+        if folium_map and iframe_cls:
+            try:
+                self.map_chart.content = iframe_cls(src=folium_map, width=900, height=360)
+                if hasattr(self.map_chart.content, "expand"):
+                    self.map_chart.content.expand = True
+            except Exception:
+                folium_map = ""
+        elif folium_map and webview_cls:
+            try:
+                self.map_chart.content = webview_cls(url=folium_map, width=900, height=360)
+                if hasattr(self.map_chart.content, "expand"):
+                    self.map_chart.content.expand = True
+            except Exception:
+                folium_map = ""
+
+        if not folium_map:
+            map_fig = make_world_map(country_grouped)
+            map_img = figure_to_base64(map_fig)
+            if map_img:
+                self.map_chart.content = ft.Image(src_base64=map_img, fit=ft.ImageFit.CONTAIN)
+            else:
+                self.map_chart.content = PlaceholderCard("Нет данных или недоступен движок визуализации карты")
 
         # Daily chart
         daily_fig = make_publications_chart(self.model.daily_stats)
