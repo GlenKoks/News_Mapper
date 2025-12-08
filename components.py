@@ -24,7 +24,8 @@ class MultiSelectDropdown(ft.Column):
             options=[ft.dropdown.Option(opt) for opt in options],
             on_change=self._handle_change,
         )
-        self.chips = ft.Wrap(spacing=6, run_spacing=6)
+        # Using a Row with wrap=True to avoid reliance on ft.Wrap (not available in older flet versions)
+        self.chips = ft.Row(spacing=6, run_spacing=6, wrap=True)
         self.controls = [self.dropdown, self.chips]
 
     def _handle_change(self, e: ft.ControlEvent):
