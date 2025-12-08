@@ -156,6 +156,9 @@ def make_top_entities_chart(data: pd.DataFrame, entity_column: str, title: str) 
             orientation="h",
             marker_color="#5C6BC0",
             name="Упоминания",
+            text=data["mentions"],
+            textposition="outside",
+            texttemplate="%{text}",
         )
     )
     fig.add_trace(
@@ -165,6 +168,9 @@ def make_top_entities_chart(data: pd.DataFrame, entity_column: str, title: str) 
             orientation="h",
             marker_color="#26A69A",
             name="Показы",
+            text=data["shows"],
+            textposition="outside",
+            texttemplate="%{text}",
         )
     )
     fig.update_layout(
@@ -174,6 +180,7 @@ def make_top_entities_chart(data: pd.DataFrame, entity_column: str, title: str) 
         margin=dict(l=0, r=0, t=50, b=0),
         legend_orientation="h",
         legend_y=-0.2,
+        xaxis_title="Количество",
     )
     return fig
 
