@@ -87,13 +87,18 @@ def main(page: ft.Page):
 
     df = load_news_data(DATA_PATH)
 
-    topic_values = sorted({topic for topic_list in df.get("topics_verdicts_list", []) for topic in topic_list})
-    country_values = sorted({country for country_list in df.get("country", []) for country in country_list})
+    topic_values = sorted(
+        {topic for topic_list in df.get("topics_verdicts_list", []) for topic in topic_list if topic}
+    )
+    country_values = sorted(
+        {country for country_list in df.get("country", []) for country in country_list if country}
+    )
     topic_filter = ft.Dropdown(
         label="Тема",
         width=250,
         options=[ft.dropdown.Option("Все темы")] + [ft.dropdown.Option(topic) for topic in topic_values],
         value="Все темы",
+        on_change=lambda e: apply_filters(),
     )
 
     country_filter = ft.Dropdown(
@@ -101,14 +106,15 @@ def main(page: ft.Page):
         width=220,
         options=[ft.dropdown.Option("Все страны")] + [ft.dropdown.Option(country) for country in country_values],
         value="Все страны",
+        on_change=lambda e: apply_filters(),
     )
 
     search_field = ft.TextField(label="Поиск в заголовке", width=300, on_change=lambda e: apply_filters())
 
     negative_switch = ft.Switch(label="С негативным вердиктом", on_change=lambda e: apply_filters())
 
-    start_date_picker = ft.DatePicker()
-    end_date_picker = ft.DatePicker()
+    start_date_picker = ft.DatePicker(on_change=lambda e: apply_filters())
+    end_date_picker = ft.DatePicker(on_change=lambda e: apply_filters())
     page.overlay.extend([start_date_picker, end_date_picker])
 
     start_button = ft.ElevatedButton("Дата с", on_click=lambda e: start_date_picker.pick_date())
