@@ -128,7 +128,9 @@ class Dashboard:
             ],
         )
 
-        self.page.add(ft.Row(controls=[filters_panel, ft.VerticalDivider(width=1), ft.Expanded(visuals)], expand=True))
+        # Use an expanding container instead of ft.Expanded for compatibility with older flet versions
+        visuals_container = ft.Container(content=visuals, expand=True)
+        self.page.add(ft.Row(controls=[filters_panel, ft.VerticalDivider(width=1), visuals_container], expand=True))
 
     def _on_person_filter(self, values: Set[str]):
         self.filter_state.persons = set(values)
