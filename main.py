@@ -87,16 +87,21 @@ def main(page: ft.Page):
 
     df = load_news_data(DATA_PATH)
 
-    topic_values = sorted(
-        {topic for topic_list in df.get("topics_verdicts_list", []) for topic in topic_list if topic}
-    )
-    country_values = sorted(
-        {country for country_list in df.get("country", []) for country in country_list if country}
-    )
+    def build_dropdown_options(values: set[str], placeholder: str) -> list[ft.dropdown.Option]:
+        cleaned = sorted(v for v in values if v)
+        return [ft.dropdown.Option(placeholder)] + [ft.dropdown.Option(value) for value in cleaned]
+
+    topic_values = {
+        topic for topic_list in df.get("topics_verdicts_list", []) for topic in topic_list if topic
+    }
+    country_values = {
+        country for country_list in df.get("country", []) for country in country_list if country
+    }
+
     topic_filter = ft.Dropdown(
         label="Тема",
         width=250,
-        options=[ft.dropdown.Option("Все темы")] + [ft.dropdown.Option(topic) for topic in topic_values],
+        options=build_dropdown_options(topic_values, "Все темы"),
         value="Все темы",
         on_change=lambda e: apply_filters(),
     )
@@ -104,7 +109,7 @@ def main(page: ft.Page):
     country_filter = ft.Dropdown(
         label="Страна",
         width=220,
-        options=[ft.dropdown.Option("Все страны")] + [ft.dropdown.Option(country) for country in country_values],
+        options=build_dropdown_options(country_values, "Все страны"),
         value="Все страны",
         on_change=lambda e: apply_filters(),
     )
