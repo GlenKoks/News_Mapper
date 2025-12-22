@@ -1,2 +1,9 @@
 flet
 pandas
+numpy
+plotly
+wordcloud
+matplotlib
+pillow
+kaleido
+folium
