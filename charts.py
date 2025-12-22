@@ -1,12 +1,11 @@
-"""Visualization helpers using Plotly, folium, and wordcloud."""
+"""Visualization helpers using Plotly, folium, and wordcloud (optimized)."""
 from __future__ import annotations
 
 import base64
 from io import BytesIO
 from typing import Iterable
-import re
 
-import copy
+import re
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -16,15 +15,47 @@ from wordcloud import STOPWORDS, WordCloud
 
 import geo
 
-
 COLOR_PALETTE = px.colors.sequential.Blues
+
+# ---- constants & precompiled helpers ----
+
+# Precompute stopwords once (big speedup on repeated calls)
+WC_STOPWORDS = frozenset(set(STOPWORDS) | {"для",
+                                           "как",
+                                           "что",
+                                           "при",
+                                           "в",
+                                           "на",
+                                           "и",
+                                           "по",
+                                           "над",
+                                           "еще",
+                                           "чем",
+                                           "это",
+                                           "быть",
+                                           "было",
+                                           "под",
+                                           "кто"})
+CORPUS_STOPWORDS = frozenset(set(STOPWORDS) | {"the", "and", "to", "of", "в", "на", "и", "по"})
+
+# Precompile regex once
+WORD_RE = re.compile(r"[\w']+", flags=re.UNICODE)
+
+# Folium base map config
+_FOLIUM_DEFAULT_LOCATION = (20, 0)
+_FOLIUM_DEFAULT_ZOOM = 2
+_FOLIUM_TILES = "cartodbpositron"
+
+
+def _empty_figure(title: str) -> go.Figure:
+    fig = go.Figure()
+    fig.update_layout(title=title)
+    return fig
 
 
 def make_world_map(country_counts: pd.DataFrame) -> go.Figure:
-    if country_counts.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Нет данных для отображения карты")
-        return fig
+    if country_counts is None or country_counts.empty:
+        return _empty_figure("Нет данных для отображения карты")
 
     fig = px.choropleth(
         country_counts,
@@ -42,26 +73,42 @@ def make_world_map(country_counts: pd.DataFrame) -> go.Figure:
 
 
 def make_folium_map_html(country_counts: pd.DataFrame) -> str:
-    """Build a folium choropleth map and return it as a data URI HTML string.
-
-    Returns an empty string when folium rendering fails so callers can
-    gracefully fall back to a placeholder or an alternative map engine.
     """
-
-    if country_counts.empty:
+    Build a folium choropleth map and return it as a data URI HTML string.
+    Returns "" on failure.
+    """
+    if country_counts is None or country_counts.empty:
         return ""
 
-    enriched_geo = copy.deepcopy(geo.geo_list)
+    # Folium Choropleth умеет сам джойнить данные по key_on, так что мутация geojson не обязательна.
+    # Но для tooltip со значением mentions нам нужно, чтобы оно было в feature.properties.
+    # Вместо deepcopy(geo.geo_list) делаем лёгкую копию только features.
+    base_geo = geo.geo_list
     mentions_by_country = country_counts.set_index("country")["mentions"].to_dict()
 
-    # Annotate geo features with mention counts for tooltips.
-    for feature in enriched_geo.get("features", []):
-        code = feature.get("id")
-        feature.setdefault("properties", {})
-        feature["properties"]["mentions"] = int(mentions_by_country.get(code, 0))
+    # lightweight copy: new dict + new features list + shallow copy of feature/properties
+    features = base_geo.get("features", [])
+    enriched_geo = {
+        **base_geo,
+        "features": [
+            {
+                **f,
+                "properties": {
+                    **(f.get("properties") or {}),
+                    "mentions": int(mentions_by_country.get(f.get("id"), 0)),
+                },
+            }
+            for f in features
+        ],
+    }
 
     try:
-        fmap = folium.Map(location=[20, 0], zoom_start=2, tiles="cartodbpositron")
+        fmap = folium.Map(
+            location=_FOLIUM_DEFAULT_LOCATION,
+            zoom_start=_FOLIUM_DEFAULT_ZOOM,
+            tiles=_FOLIUM_TILES,
+        )
+
         choropleth = folium.Choropleth(
             geo_data=enriched_geo,
             name="mentions",
@@ -77,6 +124,7 @@ def make_folium_map_html(country_counts: pd.DataFrame) -> str:
         )
         choropleth.add_to(fmap)
 
+        # Tooltip now can safely read "mentions" from geojson properties
         choropleth.geojson.add_child(
             folium.features.GeoJsonTooltip(
                 fields=["name", "mentions"],
@@ -90,40 +138,37 @@ def make_folium_map_html(country_counts: pd.DataFrame) -> str:
     except Exception:
         return ""
 
-    encoded = base64.b64encode(fmap_html.encode("utf-8")).decode("utf-8")
+    encoded = base64.b64encode(fmap_html.encode("utf-8")).decode("ascii")
     return f"data:text/html;base64,{encoded}"
 
 
 def figure_to_base64(fig: go.Figure, *, width: int = 900, height: int = 450) -> str:
-    """Render a Plotly figure to base64 PNG.
-
-    Falls back to an empty string if kaleido (Plotly static image engine)
-    is unavailable so the caller can show a placeholder instead of crashing.
-    """
-
+    """Render a Plotly figure to base64 PNG. Returns "" if kaleido unavailable."""
     try:
         png_bytes = fig.to_image(format="png", width=width, height=height, scale=2)
     except Exception:
         return ""
-
-    return base64.b64encode(png_bytes).decode("utf-8")
+    return base64.b64encode(png_bytes).decode("ascii")
 
 
 def make_publications_chart(daily_stats: pd.DataFrame) -> go.Figure:
-    if daily_stats.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Нет данных по датам")
-        return fig
+    if daily_stats is None or daily_stats.empty:
+        return _empty_figure("Нет данных по датам")
+
+    # Avoid repeatedly indexing columns inside Plotly calls
+    dates = daily_stats["date"]
+    pubs = daily_stats["publications"]
+    shows = daily_stats["shows"]
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(
-        go.Bar(x=daily_stats["date"], y=daily_stats["publications"], name="Публикации", marker_color="#4F86F7"),
+        go.Bar(x=dates, y=pubs, name="Публикации", marker_color="#4F86F7"),
         secondary_y=False,
     )
     fig.add_trace(
         go.Scatter(
-            x=daily_stats["date"],
-            y=daily_stats["shows"],
+            x=dates,
+            y=shows,
             name="Показы",
             mode="lines+markers",
             marker_color="#16A085",
@@ -143,35 +188,36 @@ def make_publications_chart(daily_stats: pd.DataFrame) -> go.Figure:
 
 
 def make_top_entities_chart(data: pd.DataFrame, entity_column: str, title: str) -> go.Figure:
-    if data.empty:
-        fig = go.Figure()
-        fig.update_layout(title=f"Нет данных для {title.lower()}")
-        return fig
+    if data is None or data.empty:
+        return _empty_figure(f"Нет данных для {title.lower()}")
 
-    fig = go.Figure()
-    fig.add_trace(
-        go.Bar(
-            x=data["mentions"],
-            y=data[entity_column],
-            orientation="h",
-            marker_color="#5C6BC0",
-            name="Упоминания",
-            text=data["mentions"],
-            textposition="outside",
-            texttemplate="%{text}",
-        )
-    )
-    fig.add_trace(
-        go.Bar(
-            x=data["shows"],
-            y=data[entity_column],
-            orientation="h",
-            marker_color="#26A69A",
-            name="Показы",
-            text=data["shows"],
-            textposition="outside",
-            texttemplate="%{text}",
-        )
+    y = data[entity_column]
+    mentions = data["mentions"]
+    shows = data["shows"]
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=mentions,
+                y=y,
+                orientation="h",
+                marker_color="#5C6BC0",
+                name="Упоминания",
+                text=mentions,
+                textposition="outside",
+                texttemplate="%{text}",
+            ),
+            go.Bar(
+                x=shows,
+                y=y,
+                orientation="h",
+                marker_color="#26A69A",
+                name="Показы",
+                text=shows,
+                textposition="outside",
+                texttemplate="%{text}",
+            ),
+        ]
     )
     fig.update_layout(
         barmode="group",
@@ -186,39 +232,35 @@ def make_top_entities_chart(data: pd.DataFrame, entity_column: str, title: str) 
 
 
 def make_wordcloud_image(text: str) -> str:
-    if not text.strip():
+    if not isinstance(text, str) or not text.strip():
         return ""
 
-    stopwords = set(STOPWORDS)
-    stopwords.update({"the", "and", "to", "of", "в", "на", "и", "по"})
-
-    wc = WordCloud(width=800, height=400, background_color="white", stopwords=stopwords, collocations=False)
-    wc.generate(text)
+    wc = WordCloud(
+        width=800,
+        height=400,
+        background_color="white",
+        stopwords=WC_STOPWORDS,
+        collocations=False,
+    ).generate(text)
 
     buffer = BytesIO()
     wc.to_image().save(buffer, format="PNG")
-    buffer.seek(0)
-    return base64.b64encode(buffer.read()).decode("utf-8")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
 def normalize_and_tokenize_corpus(lines: Iterable[str]) -> str:
     """Normalize and tokenize text lines for wordcloud generation."""
-
-    stopwords = set(STOPWORDS)
-    stopwords.update({"the", "and", "to", "of", "в", "на", "и", "по"})
     tokens: list[str] = []
+    stop = CORPUS_STOPWORDS
+    find_words = WORD_RE.findall
+    append = tokens.append
 
     for line in lines:
         if not isinstance(line, str):
-            line = str(line)
-        lowered = line.lower()
-        words = re.findall(r"[\w']+", lowered, flags=re.UNICODE)
-        for word in words:
+            line = "" if line is None else str(line)
+        for word in find_words(line.lower()):
             cleaned = word.strip("_'")
-            if len(cleaned) < 3:
-                continue
-            if cleaned in stopwords:
-                continue
-            tokens.append(cleaned)
+            if len(cleaned) >= 3 and cleaned not in stop:
+                append(cleaned)
 
     return " ".join(tokens)
