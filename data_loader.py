@@ -65,15 +65,16 @@ class DataModel:
 
     @classmethod
     def from_csv(cls, csv_path: str, cache_path: Optional[str] = "news_cache.parquet", chunksize: int = 100_000) -> "DataModel":
-        """Load CSV file efficiently, optionally using parquet cache."""
+        """Load CSV (or zipped CSV) efficiently, optionally using parquet cache."""
         csv_file = Path(csv_path)
         cache_file = Path(cache_path) if cache_path else None
+        compression = "zip" if csv_file.suffix.lower() == ".zip" else "infer"
 
         if cache_file and cache_file.exists():
             df = pd.read_parquet(cache_file)
         else:
             chunks: List[pd.DataFrame] = []
-            for chunk in pd.read_csv(csv_file, chunksize=chunksize):
+            for chunk in pd.read_csv(csv_file, chunksize=chunksize, compression=compression):
                 for column in LIST_COLUMNS:
                     if column in chunk.columns:
                         chunk[column] = chunk[column].apply(parse_list_cell)

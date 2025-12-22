@@ -18,7 +18,7 @@ from components import MultiSelectDropdown, PlaceholderCard, StatCard, build_top
 from data_loader import DataModel
 from filters import FilterState, apply_filters, extract_unique
 
-DATA_PATH = "Geo_Data.csv"
+DATA_PATH = "Dash Data.csv.zip"
 CACHE_PATH = "news_cache.parquet"
 
 
@@ -342,7 +342,7 @@ class Dashboard:
 
         # Top news table
         top_news = df.sort_values("shows", ascending=False).head(10)[
-            ["dt", "publication_title_name", "shows", "bad_verdicts_list", "topics_verdicts_list"]
+            ["dt", "publication_title_name", "pub_url", "shows", "bad_verdicts_list", "topics_verdicts_list"]
         ]
         if top_news.empty:
             self.top_news_table.content = PlaceholderCard("Нет данных для отображения новостей")

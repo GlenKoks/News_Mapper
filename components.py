@@ -95,11 +95,23 @@ class PlaceholderCard(ft.Container):
 def build_top_news_table(data: pd.DataFrame) -> ft.DataTable:
     rows = []
     for _, row in data.iterrows():
+        title_text = row.get("publication_title_name", "—")
+        url = row.get("pub_url")
+        title_control: ft.Control
+        if isinstance(url, str) and url.strip():
+            title_control = ft.TextButton(
+                text=title_text,
+                style=ft.ButtonStyle(color={ft.MaterialState.DEFAULT: ft.Colors.BLUE_600}),
+                on_click=lambda e, link=url: e.page.launch_url(link) if getattr(e, "page", None) else None,
+            )
+        else:
+            title_control = ft.Text(title_text)
+
         rows.append(
             ft.DataRow(
                 cells=[
                     ft.DataCell(ft.Text(row.get("dt").strftime("%Y-%m-%d") if pd.notna(row.get("dt")) else "—")),
-                    ft.DataCell(ft.Text(row.get("publication_title_name", "—"))),
+                    ft.DataCell(title_control),
                     ft.DataCell(ft.Text(f"{int(row.get('shows', 0)):,}".replace(",", " "))),
                     ft.DataCell(ft.Text(format_list(row.get("bad_verdicts_list", [])))),
                     ft.DataCell(ft.Text(format_list(row.get("topics_verdicts_list", [])))),
