@@ -64,17 +64,41 @@ class DataModel:
     daily_stats: pd.DataFrame
 
     @classmethod
-    def from_csv(cls, csv_path: str, cache_path: Optional[str] = "news_cache.parquet", chunksize: int = 100_000) -> "DataModel":
-        """Load CSV (or zipped CSV) efficiently, optionally using parquet cache."""
+    def from_csv(
+        cls,
+        csv_path: str,
+        cache_path: Optional[str] = "news_cache.parquet",
+        chunksize: int = 100_000,
+        max_rows: Optional[int] = None,
+    ) -> "DataModel":
+        """Load CSV (or zipped CSV) efficiently, optionally using parquet cache.
+
+        Args:
+            csv_path: Path to CSV or zipped CSV.
+            cache_path: Optional parquet cache path. When `max_rows` is provided,
+                a distinct cache file with the limit encoded in its name is used
+                to avoid re-reading the full dataset.
+            chunksize: Number of rows per chunk for streaming reads.
+            max_rows: Optional cap on rows to load for faster experimentation.
+        """
         csv_file = Path(csv_path)
         cache_file = Path(cache_path) if cache_path else None
+        if cache_file and max_rows:
+            cache_file = cache_file.with_name(f"{cache_file.stem}_limit{max_rows}{cache_file.suffix}")
         compression = "zip" if csv_file.suffix.lower() == ".zip" else "infer"
 
         if cache_file and cache_file.exists():
             df = pd.read_parquet(cache_file)
         else:
             chunks: List[pd.DataFrame] = []
+            remaining = max_rows
             for chunk in pd.read_csv(csv_file, chunksize=chunksize, compression=compression):
+                if remaining is not None and remaining <= 0:
+                    break
+
+                if remaining is not None and len(chunk) > remaining:
+                    chunk = chunk.iloc[:remaining]
+
                 for column in LIST_COLUMNS:
                     if column in chunk.columns:
                         chunk[column] = chunk[column].apply(parse_list_cell)
@@ -89,6 +113,8 @@ class DataModel:
                     chunk["title_lower"] = chunk["publication_title_name"].str.lower()
 
                 chunks.append(chunk)
+                if remaining is not None:
+                    remaining -= len(chunk)
 
             df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
 

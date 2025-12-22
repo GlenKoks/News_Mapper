@@ -20,6 +20,7 @@ from filters import FilterState, apply_filters, extract_unique
 
 DATA_PATH = "Dash Data.csv.zip"
 CACHE_PATH = "news_cache.parquet"
+ROW_LIMIT = 20_000
 # Количество строк в исходном датафрейме, инициализируется при загрузке данных
 DATA_ROW_COUNT: int | None = None
 
@@ -27,7 +28,7 @@ DATA_ROW_COUNT: int | None = None
 class Dashboard:
     def __init__(self, page: ft.Page):
         self.page = page
-        self.model = DataModel.from_csv(DATA_PATH, CACHE_PATH)
+        self.model = DataModel.from_csv(DATA_PATH, CACHE_PATH, max_rows=ROW_LIMIT)
         global DATA_ROW_COUNT
         DATA_ROW_COUNT = len(self.model.data)
         self.filter_state = FilterState()
