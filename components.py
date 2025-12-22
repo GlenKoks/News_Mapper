@@ -101,7 +101,8 @@ def build_top_news_table(data: pd.DataFrame) -> ft.DataTable:
         if isinstance(url, str) and url.strip():
             title_control = ft.TextButton(
                 text=title_text,
-                style=ft.ButtonStyle(color={ft.MaterialState.DEFAULT: ft.Colors.BLUE_600}),
+                # Older flet builds may lack MaterialState; direct color keeps compatibility
+                style=ft.ButtonStyle(color=ft.Colors.BLUE_600),
                 on_click=lambda e, link=url: e.page.launch_url(link) if getattr(e, "page", None) else None,
             )
         else:
