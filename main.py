@@ -18,7 +18,7 @@ from components import MultiSelectDropdown, PlaceholderCard, StatCard, build_top
 from data_loader import DataModel
 from filters import FilterState, apply_filters, extract_unique
 
-DATA_PATH = "Dash Data.csv.zip"
+DATA_PATH = "Geo_Data.csv"
 CACHE_PATH = "news_cache.parquet"
 ROW_LIMIT = 20_000
 # Количество строк в исходном датафрейме, инициализируется при загрузке данных
